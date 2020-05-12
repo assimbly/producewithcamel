@@ -1,0 +1,9 @@
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/C:/Users/user/.m2/repository/org/slf4j/slf4j-simple/1.7.30/slf4j-simple-1.7.30.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/C:/Users/user/.m2/repository/org/apache/logging/log4j/log4j-slf4j-impl/2.13.1/log4j-slf4j-impl-2.13.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/C:/Users/user/.m2/repository/ch/qos/logback/logback-classic/1.2.3/logback-classic-1.2.3.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.slf4j.impl.SimpleLoggerFactory]
+[main] INFO org.apache.camel.support.LRUCacheFactory - Detected and using LURCacheFactory: camel-caffeine-lrucache
+[main] WARN org.apache.camel.impl.converter.CoreTypeConverterRegistry - Overriding type converter from: org.apache.camel.support.SimpleTypeConverter@4ec4f3a0 to: org.apache.camel.support.SimpleTypeConverter@223191a6
+[main] INFO io.github.assimbly.processors.producewithcamel.ProduceWithCamel - null Init process..............................
