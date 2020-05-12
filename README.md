@@ -20,3 +20,5 @@ The processor has 5 properties:
 * Maximum Deliveries: Maximum of retries in case of an error 
 * Delivery Delay: Delay between retries
 * Log Level: The loglevel of the Camel route
+
+For the URI format of the camel componet see [Camel's component reference](https://camel.apache.org/components/latest/)
