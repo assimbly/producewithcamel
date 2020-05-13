@@ -1,6 +1,6 @@
 # About
 
-ProduceWithCamel is an experimental processor for [Apache Nifi](http://nifi.apache.org/) that uses [Apache Camel](http://camel.apache.org/) to
+ProduceWithCamel is an **experimental** processor for [Apache Nifi](http://nifi.apache.org/) that uses [Apache Camel](http://camel.apache.org/) to
 produce messages.  
 
 The processor is based on [Assimbly Connector](https://github.com/assimbly/connector)
@@ -21,4 +21,5 @@ The processor has 5 properties:
 * Delivery Delay: Delay between retries
 * Log Level: The loglevel of the Camel route
 
-For the URI format of the camel componet see [Camel's component reference](https://camel.apache.org/components/latest/)
+For the URI format of the camel componet see [Camel's component reference](https://camel.apache.org/components/latest/). For 
+example to use File uri: file://C/out
