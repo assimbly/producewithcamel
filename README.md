@@ -24,11 +24,11 @@ The processor has 5 properties:
 
 
 The processor accepts dynamic properties prefixed with "camel."
-![Alt text](relative/path/to/img.jpg?raw=true "Dynamic Properties")
+![Alt text](docs/dynamic-properties.jpg?raw=true "Dynamic Properties")
 
 
 Camel headers can be returned into Nifi attributes
-![Alt text](relative/path/to/img.jpg?raw=true "Camel Headers")
+![Alt text](docs/camel-headers.jpg?raw=true "Camel Headers")
 
 
 For the URI format of the camel component see [Camel's component reference](https://camel.apache.org/components/latest/). For 
