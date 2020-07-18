@@ -18,7 +18,9 @@ package io.github.assimbly.processors.producewithcamel;
 
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.camel.Exchange;
 import org.apache.camel.ProducerTemplate;
+import org.apache.camel.Processor;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
 import org.apache.nifi.annotation.behavior.ReadsAttributes;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -28,6 +30,8 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.components.PropertyValue;
+import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -37,9 +41,13 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -47,7 +55,10 @@ import java.util.UUID;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+
 import org.apache.nifi.processor.io.InputStreamCallback;
+import org.apache.nifi.processor.io.OutputStreamCallback;
 
 import org.assimbly.connector.Connector;
 import org.assimbly.docconverter.DocConverter;
@@ -87,7 +98,7 @@ public class ProduceWithCamel extends AbstractProcessor {
 
     public static final PropertyDescriptor REDELIVERY_DELAY = new PropertyDescriptor
             .Builder().name("REDELIVERY_DELAY")
-            .displayName("Redelivery delay")
+            .displayName("Redelivery Delay")
             .description("Delay in ms between redeliveries")
             .defaultValue("3000")
             .required(true)
@@ -102,8 +113,37 @@ public class ProduceWithCamel extends AbstractProcessor {
             .defaultValue("OFF")
             .allowableValues("OFF","INFO","WARN","ERROR","DEBUG","TRACE")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();	    
-	   
+            .build();
+
+    public static final PropertyDescriptor RETURN_HEADERS = new PropertyDescriptor
+            .Builder().name("RETURN_HEADERS")
+            .displayName("Return Headers")
+            .description("Return Camel exchange out headers into Nifi flowfile attributes")
+            .required(true)
+            .allowableValues("true","false")
+            .defaultValue("false")
+            .build();
+
+    @Override
+    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+        if (propertyDescriptorName.startsWith("camel.")) {
+            String displayName;
+            String description;
+            displayName = propertyDescriptorName.substring(6);
+            description = String.format("Camel equivalent to <setHeader name=\"%s\"><simple>xxxx<simple></setHeader> (nifi expressions supported)", displayName);
+            return new PropertyDescriptor.Builder()
+                .name(propertyDescriptorName)
+                .displayName(propertyDescriptorName)
+                .description(description)
+                .required(false)
+                .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+                .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+                .dynamic(true)
+                .build();
+        }
+        return null;
+    }
+
     public static final Relationship SUCCESS = new Relationship.Builder()
             .name("SUCCESS")
             .description("Succes relationship")
@@ -135,6 +175,7 @@ public class ProduceWithCamel extends AbstractProcessor {
         descriptors.add(MAXIMUM_REDELIVERIES);
         descriptors.add(REDELIVERY_DELAY);
         descriptors.add(LOG_LEVEL);
+        descriptors.add(RETURN_HEADERS);
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
@@ -207,22 +248,57 @@ public class ProduceWithCamel extends AbstractProcessor {
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
         
+        final AtomicReference<byte[]> body = new AtomicReference<>(new byte[]{});        
+        final Map<String, Object> attributes = new ConcurrentHashMap<>();
+        
     	FlowFile flowfile = session.get();
   
         if ( flowfile == null ) {
             return;
         }
-
+        
+        Map<String, String> headers = new HashMap<>();
+        //Embed evaluated expression into headers map
+        for (PropertyDescriptor propertyDescriptor : context.getProperties().keySet()) {
+            if (propertyDescriptor.isDynamic()) {
+                PropertyValue myValue = context.newPropertyValue( context.getProperty(propertyDescriptor).getValue());
+                headers.put(propertyDescriptor.getName().substring(6), myValue.evaluateAttributeExpressions(flowfile).getValue().toString());
+            }
+        }
+        
         session.read(flowfile, new InputStreamCallback() {
             @Override
             public void process(InputStream in) throws IOException {
                 try{
 
-                	//Convert flowFile to a string
-                	input = DocConverter.convertStreamToString(in);
-
-                	//Send the message to the Camel route
-                	template.sendBody(input); 
+                    //Convert flowFile to a string
+                    input = DocConverter.convertStreamToString(in);
+                    
+                    //Enrich and process the exchange as InOut
+                    Exchange exchange = template.request("direct:nifi-" + flowId, new Processor() {
+                        public void process(Exchange exchange) throws Exception {
+                            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                                exchange.getIn().setHeader(entry.getKey(), entry.getValue());
+                            }
+                            exchange.getOut().setHeaders(exchange.getIn().getHeaders());
+                            exchange.getIn().setBody(input);
+                        }
+                    });
+                    
+                    //Retrieve out headers
+                    Map<String, Object> map = exchange.getOut().getHeaders();
+                    for (Map.Entry<String, Object> entry : map.entrySet()) {
+                        try {
+                            if (!entry.getKey().startsWith("Assimbly")) {
+                                attributes.put(String.format("camel.%s", entry.getKey()), entry.getValue().toString());
+                            }
+                        }catch(Exception ex){
+                            //Some returned headers may not be string safe...
+                            getLogger().debug(String.format("Unconverted back camel header: \"%s\"", entry.getKey()));
+                        }
+                    }
+                    //TODO: would it be possible to fail converting body into bytes ?
+                    body.set(exchange.getOut().getBody(byte[].class));
 
                 }catch(Exception ex){
                     ex.printStackTrace();
@@ -230,6 +306,23 @@ public class ProduceWithCamel extends AbstractProcessor {
                 }
             }
         });
+
+        if (context.getProperty(RETURN_HEADERS).getValue().equals("true")) {
+            //Write the camel headers into attributes
+            for (Map.Entry<String, Object> entry : attributes.entrySet()) {
+                flowfile = session.putAttribute(flowfile, entry.getKey(), entry.getValue().toString());
+            }
+        }
+
+        if (body.get() != null) {
+            //To write the body/result back out into flow file
+            flowfile = session.write(flowfile, new OutputStreamCallback() {
+                @Override
+                public void process(OutputStream out) throws IOException {
+                    out.write(body.get());
+                }
+            });
+        }
 
         session.transfer(flowfile, SUCCESS);
         
